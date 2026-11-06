@@ -253,6 +253,93 @@ test("check rejects demoting an approval recorded in the monolith", () => {
   }
 })
 
+test("check rejects rewriting a skipped bookmark as proposed", () => {
+  const dir = initRepo()
+  try {
+    expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    expect(run(dir, ["skip", "--id", "1", "--reason", "duplicate"]).code).toBe(0)
+    const base = commitAll(dir)
+    const at = statusAt(readBookmark(dir, "1"))
+    writeFileSync(bookmarkPath(dir, "1"), proposedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at))
+    const stamped = snapshot(dir, "1")
+    const result = run(dir, ["check"], { GATE_BASE: base })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("skip")
+    expect(snapshot(dir, "1")).toEqual(stamped)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("check rejects rewriting a skipped bookmark as approved", () => {
+  const dir = initRepo()
+  try {
+    expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    expect(run(dir, ["skip", "--id", "1", "--reason", "duplicate"]).code).toBe(0)
+    const base = commitAll(dir)
+    const at = statusAt(readBookmark(dir, "1"))
+    writeFileSync(
+      bookmarkPath(dir, "1"),
+      approvedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "fresh-demo"),
+    )
+    const stamped = snapshot(dir, "1")
+    const result = run(dir, ["check"], { GATE_BASE: base })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("skip")
+    expect(snapshot(dir, "1")).toEqual(stamped)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("check rejects a skipped reason change", () => {
+  const dir = initRepo()
+  try {
+    expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    expect(run(dir, ["skip", "--id", "1", "--reason", "duplicate"]).code).toBe(0)
+    const base = commitAll(dir)
+    const at = statusAt(readBookmark(dir, "1"))
+    writeFileSync(bookmarkPath(dir, "1"), skippedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "other"))
+    const stamped = snapshot(dir, "1")
+    const result = run(dir, ["check"], { GATE_BASE: base })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("skip")
+    expect(snapshot(dir, "1")).toEqual(stamped)
+    writeFileSync(
+      bookmarkPath(dir, "1"),
+      skippedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, "2026-11-04T00:00:00.000Z", "duplicate"),
+    )
+    expect(run(dir, ["check"], { GATE_BASE: base }).code).toBe(0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("check rejects promoting a skip recorded in the monolith", () => {
+  const dir = initRepo()
+  try {
+    writeFileSync(
+      join(dir, "tracking", "seen-bookmarks.json"),
+      skippedMonolith("1", "T", "https://x.com/a/status/1", DEEP_DATE, "duplicate"),
+    )
+    const base = commitAll(dir)
+    rmSync(join(dir, "tracking", "seen-bookmarks.json"))
+    expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    const proposed = run(dir, ["check"], { GATE_BASE: base })
+    expect(proposed.code).toBe(1)
+    expect(proposed.stderr).toContain("skip")
+    const at = statusAt(readBookmark(dir, "1"))
+    writeFileSync(bookmarkPath(dir, "1"), skippedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "duplicate"))
+    expect(run(dir, ["check"], { GATE_BASE: base }).code).toBe(0)
+    writeFileSync(bookmarkPath(dir, "1"), skippedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "other"))
+    const changed = run(dir, ["check"], { GATE_BASE: base })
+    expect(changed.code).toBe(1)
+    expect(changed.stderr).toContain("skip")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("check rejects two approved bookmarks with the same slug", () => {
   const dir = initRepo()
   try {
@@ -449,6 +536,23 @@ function monolith(id: string, title: string, url: string, date: string): string 
     }
   ],
   "skipped": []
+}
+`
+}
+
+function skippedMonolith(id: string, title: string, url: string, date: string, reason: string): string {
+  return `{
+  "proposed": [],
+  "approved": [],
+  "skipped": [
+    {
+      "id": ${JSON.stringify(id)},
+      "title": ${JSON.stringify(title)},
+      "url": ${JSON.stringify(url)},
+      "date": ${JSON.stringify(date)},
+      "reason": ${JSON.stringify(reason)}
+    }
+  ]
 }
 `
 }

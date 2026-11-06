@@ -175,6 +175,7 @@ function identitiesAtBase(root: string, base: string): IdentityRead {
       url: parsed.bookmark.url,
       date: parsed.bookmark.date,
       approval: parsed.bookmark.status.phase === "approved" ? parsed.bookmark.status.slug : undefined,
+      skip: parsed.bookmark.status.phase === "skipped" ? parsed.bookmark.status.reason : undefined,
     })
   }
   return { ok: true, identities }

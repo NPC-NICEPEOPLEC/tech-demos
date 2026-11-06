@@ -19,6 +19,7 @@ export type Identity = {
 
 export type BaseRecord = Identity & {
   readonly approval: Slug | undefined
+  readonly skip: string | undefined
 }
 
 export type BookmarkStatus =
@@ -131,11 +132,11 @@ export function skipBookmark(ledger: Ledger, id: BookmarkId, reason: string, at:
 
 export function identitiesFromMonolith(value: unknown): IdentityRead {
   if (!isRecord(value)) return { ok: false, reason: "tracking/seen-bookmarks.json is not an object" }
-  const proposed = identitiesFromEntries(value.proposed, "proposed", false)
+  const proposed = identitiesFromEntries(value.proposed, "proposed")
   if (!proposed.ok) return proposed
-  const approved = identitiesFromEntries(value.approved, "approved", true)
+  const approved = identitiesFromEntries(value.approved, "approved")
   if (!approved.ok) return approved
-  const skipped = identitiesFromEntries(value.skipped, "skipped", false)
+  const skipped = identitiesFromEntries(value.skipped, "skipped")
   if (!skipped.ok) return skipped
   return uniqueIdentities([...proposed.identities, ...approved.identities, ...skipped.identities])
 }
@@ -240,11 +241,18 @@ export function identityProblems(bookmarks: Ledger, base: readonly Identity[]): 
 export function approvalProblems(bookmarks: Ledger, base: readonly BaseRecord[]): readonly string[] {
   const problems: string[] = []
   for (const record of base) {
-    if (record.approval === undefined) continue
+    if (record.approval !== undefined) {
+      const current = bookmarks.get(record.id)
+      if (current === undefined) continue
+      if (current.status.phase === "approved" && current.status.slug === record.approval) continue
+      problems.push(`bookmark ${record.id} approval does not match the merge base`)
+      continue
+    }
+    if (record.skip === undefined) continue
     const current = bookmarks.get(record.id)
     if (current === undefined) continue
-    if (current.status.phase === "approved" && current.status.slug === record.approval) continue
-    problems.push(`bookmark ${record.id} approval does not match the merge base`)
+    if (current.status.phase === "skipped" && current.status.reason === record.skip) continue
+    problems.push(`bookmark ${record.id} skip does not match the merge base`)
   }
   return problems
 }
@@ -328,28 +336,44 @@ function parseStatus(value: unknown): { readonly ok: true; readonly status: Book
   }
 }
 
-function identitiesFromEntries(value: unknown, name: string, approved: boolean): IdentityRead {
+function identitiesFromEntries(value: unknown, name: "proposed" | "approved" | "skipped"): IdentityRead {
   if (!Array.isArray(value)) return { ok: false, reason: `tracking/seen-bookmarks.json has no ${name} array` }
   const identities: BaseRecord[] = []
   for (const entry of value) {
     if (!isRecord(entry)) return { ok: false, reason: `a ${name} bookmark entry is not an object` }
     const identity = parseIdentity(entry)
     if (!identity.ok) return identity
-    let approval: Slug | undefined
-    if (approved) {
-      const slug = entry.slug
-      if (typeof slug !== "string" || !isSlug(slug)) return { ok: false, reason: "an approved bookmark has no slug" }
-      approval = slug
-    }
+    const terminal = terminalFromEntry(entry, name)
+    if (!terminal.ok) return terminal
     identities.push({
       id: identity.identity.id,
       title: identity.identity.title,
       url: identity.identity.url,
       date: identity.identity.date,
-      approval,
+      approval: terminal.approval,
+      skip: terminal.skip,
     })
   }
   return { ok: true, identities }
+}
+
+function terminalFromEntry(
+  entry: Record<string, unknown>,
+  name: "proposed" | "approved" | "skipped",
+): { readonly ok: true; readonly approval: Slug | undefined; readonly skip: string | undefined } | Failure {
+  if (name === "approved") {
+    const slug = entry.slug
+    if (typeof slug !== "string" || !isSlug(slug)) return { ok: false, reason: "an approved bookmark has no slug" }
+    return { ok: true, approval: slug, skip: undefined }
+  }
+  if (name === "skipped") {
+    const reason = entry.reason
+    if (typeof reason !== "string" || reason.length === 0) {
+      return { ok: false, reason: "a skipped bookmark has no reason" }
+    }
+    return { ok: true, approval: undefined, skip: reason }
+  }
+  return { ok: true, approval: undefined, skip: undefined }
 }
 
 function duplicateSlugProblems(bookmarks: Ledger): readonly string[] {
