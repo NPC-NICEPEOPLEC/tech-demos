@@ -208,6 +208,77 @@ test("check accepts a status change and rejects an identity change", () => {
   }
 })
 
+test("check rejects a rewrite of an approved bookmark", () => {
+  const dir = initRepo()
+  try {
+    expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    expect(run(dir, ["approve", "--id", "1", "--slug", "geoinflow-demo"]).code).toBe(0)
+    const base = commitAll(dir)
+    const at = statusAt(readBookmark(dir, "1"))
+    const rewrites = [
+      proposedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at),
+      skippedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "duplicate"),
+      approvedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "deeptutor-demo"),
+    ]
+    for (const bytes of rewrites) {
+      writeFileSync(bookmarkPath(dir, "1"), bytes)
+      const stamped = snapshot(dir, "1")
+      const result = run(dir, ["check"], { GATE_BASE: base })
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("approval")
+      expect(snapshot(dir, "1")).toEqual(stamped)
+    }
+    writeFileSync(
+      bookmarkPath(dir, "1"),
+      approvedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, "2026-11-04T00:00:00.000Z", "geoinflow-demo"),
+    )
+    expect(run(dir, ["check"], { GATE_BASE: base }).code).toBe(0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("check rejects demoting an approval recorded in the monolith", () => {
+  const dir = initRepo()
+  try {
+    writeFileSync(join(dir, "tracking", "seen-bookmarks.json"), monolith("1", "T", "https://x.com/a/status/1", DEEP_DATE))
+    const base = commitAll(dir)
+    rmSync(join(dir, "tracking", "seen-bookmarks.json"))
+    expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    const result = run(dir, ["check"], { GATE_BASE: base })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("approval")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("check rejects two approved bookmarks with the same slug", () => {
+  const dir = initRepo()
+  try {
+    const at = "2026-11-03T08:32:00.000Z"
+    mkdirSync(join(dir, "tracking", "bookmarks"))
+    writeFileSync(
+      bookmarkPath(dir, "1"),
+      approvedBytes("1", "T", "https://x.com/a/status/1", DEEP_DATE, at, "geoinflow-demo"),
+    )
+    writeFileSync(
+      bookmarkPath(dir, "2"),
+      approvedBytes("2", "U", "https://x.com/b/status/2", GEO_DATE, at, "geoinflow-demo"),
+    )
+    const base = commitAll(dir)
+    const first = snapshot(dir, "1")
+    const second = snapshot(dir, "2")
+    const result = run(dir, ["check"], { GATE_BASE: base })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("geoinflow-demo")
+    expect(snapshot(dir, "1")).toEqual(first)
+    expect(snapshot(dir, "2")).toEqual(second)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("check rejects a bookmark that the merge base still has when the file is gone", () => {
   const dir = initRepo()
   try {
@@ -230,6 +301,7 @@ test("check reads identities from the monolith and keeps the source date", () =>
     const base = commitAll(dir)
     rmSync(join(dir, "tracking", "seen-bookmarks.json"))
     expect(run(dir, proposeArgs("1", "T", "https://x.com/a/status/1", DEEP_DATE)).code).toBe(0)
+    expect(run(dir, ["approve", "--id", "1", "--slug", "geoinflow-demo"]).code).toBe(0)
     expect(run(dir, ["check"], { GATE_BASE: base }).code).toBe(0)
 
     writeFileSync(bookmarkPath(dir, "1"), readBookmark(dir, "1").replace(DEEP_DATE, "2026-11-03T00:00:00.000Z"))

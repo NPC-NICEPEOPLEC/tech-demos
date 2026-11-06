@@ -17,6 +17,10 @@ export type Identity = {
   readonly date: string
 }
 
+export type BaseRecord = Identity & {
+  readonly approval: Slug | undefined
+}
+
 export type BookmarkStatus =
   | { readonly phase: "proposed"; readonly at: string }
   | { readonly phase: "approved"; readonly at: string; readonly slug: Slug }
@@ -32,7 +36,7 @@ export type Transition =
   | { readonly ok: false; readonly reason: string }
 
 export type IdentityRead =
-  | { readonly ok: true; readonly identities: readonly Identity[] }
+  | { readonly ok: true; readonly identities: readonly BaseRecord[] }
   | { readonly ok: false; readonly reason: string }
 
 type Failure = { readonly ok: false; readonly reason: string }
@@ -127,11 +131,11 @@ export function skipBookmark(ledger: Ledger, id: BookmarkId, reason: string, at:
 
 export function identitiesFromMonolith(value: unknown): IdentityRead {
   if (!isRecord(value)) return { ok: false, reason: "tracking/seen-bookmarks.json is not an object" }
-  const proposed = identitiesFromEntries(value.proposed, "proposed")
+  const proposed = identitiesFromEntries(value.proposed, "proposed", false)
   if (!proposed.ok) return proposed
-  const approved = identitiesFromEntries(value.approved, "approved")
+  const approved = identitiesFromEntries(value.approved, "approved", true)
   if (!approved.ok) return approved
-  const skipped = identitiesFromEntries(value.skipped, "skipped")
+  const skipped = identitiesFromEntries(value.skipped, "skipped", false)
   if (!skipped.ok) return skipped
   return uniqueIdentities([...proposed.identities, ...approved.identities, ...skipped.identities])
 }
@@ -192,6 +196,7 @@ export function readBookmarkDir(dir: string): BookmarkDirRead {
     }
     bookmarks.set(parsed.bookmark.id, parsed.bookmark)
   }
+  for (const problem of duplicateSlugProblems(bookmarks)) problems.push(problem)
   return { bookmarks, files, problems }
 }
 
@@ -228,6 +233,18 @@ export function identityProblems(bookmarks: Ledger, base: readonly Identity[]): 
     }
     const field = changedField(current, identity)
     if (field !== undefined) problems.push(`bookmark ${identity.id} ${field} does not match the merge base`)
+  }
+  return problems
+}
+
+export function approvalProblems(bookmarks: Ledger, base: readonly BaseRecord[]): readonly string[] {
+  const problems: string[] = []
+  for (const record of base) {
+    if (record.approval === undefined) continue
+    const current = bookmarks.get(record.id)
+    if (current === undefined) continue
+    if (current.status.phase === "approved" && current.status.slug === record.approval) continue
+    problems.push(`bookmark ${record.id} approval does not match the merge base`)
   }
   return problems
 }
@@ -311,19 +328,46 @@ function parseStatus(value: unknown): { readonly ok: true; readonly status: Book
   }
 }
 
-function identitiesFromEntries(value: unknown, name: string): IdentityRead {
+function identitiesFromEntries(value: unknown, name: string, approved: boolean): IdentityRead {
   if (!Array.isArray(value)) return { ok: false, reason: `tracking/seen-bookmarks.json has no ${name} array` }
-  const identities: Identity[] = []
+  const identities: BaseRecord[] = []
   for (const entry of value) {
     if (!isRecord(entry)) return { ok: false, reason: `a ${name} bookmark entry is not an object` }
     const identity = parseIdentity(entry)
     if (!identity.ok) return identity
-    identities.push(identity.identity)
+    let approval: Slug | undefined
+    if (approved) {
+      const slug = entry.slug
+      if (typeof slug !== "string" || !isSlug(slug)) return { ok: false, reason: "an approved bookmark has no slug" }
+      approval = slug
+    }
+    identities.push({
+      id: identity.identity.id,
+      title: identity.identity.title,
+      url: identity.identity.url,
+      date: identity.identity.date,
+      approval,
+    })
   }
   return { ok: true, identities }
 }
 
-function uniqueIdentities(identities: readonly Identity[]): IdentityRead {
+function duplicateSlugProblems(bookmarks: Ledger): readonly string[] {
+  const seen = new Set<Slug>()
+  const problems: string[] = []
+  const records = [...bookmarks.values()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  for (const bookmark of records) {
+    if (bookmark.status.phase !== "approved") continue
+    if (seen.has(bookmark.status.slug)) {
+      problems.push(`slug ${bookmark.status.slug} is already approved`)
+      continue
+    }
+    seen.add(bookmark.status.slug)
+  }
+  return problems
+}
+
+function uniqueIdentities(identities: readonly BaseRecord[]): IdentityRead {
   const seen = new Set<BookmarkId>()
   for (const identity of identities) {
     if (seen.has(identity.id)) return { ok: false, reason: `bookmark ${identity.id} is duplicated on the merge base` }

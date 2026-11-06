@@ -3,6 +3,7 @@ import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 import {
+  approvalProblems,
   approveBookmark,
   canonicalBytes,
   canonicalProblems,
@@ -16,6 +17,7 @@ import {
   readBookmarkDir,
   skipBookmark,
   storeProblem,
+  type BaseRecord,
   type Bookmark,
   type BookmarkId,
   type Identity,
@@ -121,7 +123,10 @@ function check(root: string): number {
   const problems = [...read.problems, ...canonicalProblems(read.files, read.bookmarks)]
   const identities = identitiesAtBase(root, resolveMergeBase(root))
   if (!identities.ok) problems.push(identities.reason)
-  else problems.push(...identityProblems(read.bookmarks, identities.identities))
+  else {
+    problems.push(...identityProblems(read.bookmarks, identities.identities))
+    problems.push(...approvalProblems(read.bookmarks, identities.identities))
+  }
   if (problems.length > 0) return fail(problems.join("\n"))
   return 0
 }
@@ -156,7 +161,7 @@ function identitiesAtBase(root: string, base: string): IdentityRead {
     }
   }
   if (monolith !== undefined) return parseMonolith(monolith)
-  const identities: Identity[] = []
+  const identities: BaseRecord[] = []
   for (const path of paths) {
     const text = gitShow(root, base, path)
     if (text === undefined) return { ok: false, reason: `${path} is missing at ${base}` }
@@ -169,6 +174,7 @@ function identitiesAtBase(root: string, base: string): IdentityRead {
       title: parsed.bookmark.title,
       url: parsed.bookmark.url,
       date: parsed.bookmark.date,
+      approval: parsed.bookmark.status.phase === "approved" ? parsed.bookmark.status.slug : undefined,
     })
   }
   return { ok: true, identities }
