@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,106 +12,26 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { MemoryPanel } from "@/components/memory-panel"
 import { generateQuizWithModel, llmKey } from "@/lib/llm"
-import {
-  clearMemory,
-  emptyMemory,
-  loadMemory,
-  recordAnswer,
-  saveMemory,
-  startQuiz,
-  type Memory,
-} from "@/lib/memory"
-import {
-  SAMPLE_NOTES,
-  generateQuizLocal,
-  type QuizQuestion,
-} from "@/lib/quiz"
+import { SAMPLE_NOTES, generateQuizLocal } from "@/lib/quiz"
+import { createBrowserQuiz } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 const modelAvailable = llmKey() !== null
 
 export default function App() {
   const [notes, setNotes] = useState("")
-  const [questions, setQuestions] = useState<QuizQuestion[]>([])
-  const [index, setIndex] = useState(0)
-  const [picks, setPicks] = useState<Record<string, string>>({})
-  const [memory, setMemory] = useState<Memory>(() => loadMemory())
-  const [mode, setMode] = useState<"local" | "model">("local")
   const [useModel, setUseModel] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [controller] = useState(() =>
+    createBrowserQuiz(window, {
+      writeQuiz: generateQuizLocal,
+      modelQuiz: generateQuizWithModel,
+      modelKey: llmKey,
+    }),
+  )
+  const quiz = useSyncExternalStore(controller.subscribe, controller.snapshot)
 
-  const question = questions[index]
-  const answered = questions.filter((item) => picks[item.id]).length
-
-  function commit(update: (current: Memory) => Memory) {
-    setMemory((current) => {
-      const next = update(current)
-      saveMemory(next)
-      return next
-    })
-  }
-
-  async function generate() {
-    const source = notes.trim()
-    if (!source) {
-      setMessage("Paste notes or load the sample passage first.")
-      return
-    }
-
-    setBusy(true)
-    setMessage(null)
-    let nextQuestions = generateQuizLocal(source)
-    let nextMode: "local" | "model" = "local"
-    const key = llmKey()
-
-    if (useModel && key) {
-      try {
-        const modeled = await generateQuizWithModel(source, key)
-        if (modeled.length >= 3) {
-          nextQuestions = modeled
-          nextMode = "model"
-        } else {
-          setMessage("The model returned too little, so this quiz is local.")
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : "Model request failed."
-        setMessage(`${reason} Showing a local quiz instead.`)
-      }
-    }
-
-    if (nextQuestions.length === 0) {
-      setQuestions([])
-      setMessage("Not enough full sentences to build a quiz. Try the sample notes.")
-      setBusy(false)
-      return
-    }
-
-    setQuestions(nextQuestions)
-    setIndex(0)
-    setPicks({})
-    setMode(nextMode)
-    commit((current) => startQuiz(current, nextQuestions.length))
-    setBusy(false)
-  }
-
-  function choose(choice: string) {
-    if (!question || picks[question.id]) return
-    const correct = choice === question.answer
-    const topic = question.topic
-    setPicks((current) => ({ ...current, [question.id]: choice }))
-    commit((current) => recordAnswer(current, topic, correct))
-  }
-
-  function reset() {
-    clearMemory()
-    setMemory(emptyMemory())
-    setQuestions([])
-    setPicks({})
-    setIndex(0)
-    setMode("local")
-    setMessage("Memory cleared on this browser.")
-  }
+  const question = quiz.questions.at(quiz.index) ?? null
+  const answered = quiz.questions.filter((item) => quiz.picks[item.id]).length
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
@@ -122,7 +42,7 @@ export default function App() {
               DeepTutor
             </h1>
             <Badge variant="outline">
-              {mode === "model" ? "Model" : "Local heuristics"}
+              {quiz.mode === "model" ? "Model" : "Local heuristics"}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
@@ -132,7 +52,7 @@ export default function App() {
           </p>
         </div>
         <p className="text-sm text-muted-foreground tabular-nums">
-          {memory.longTerm.correct}/{memory.longTerm.answered} correct overall
+          {quiz.memory.longTerm.correct}/{quiz.memory.longTerm.answered} correct overall
         </p>
       </header>
 
@@ -161,13 +81,15 @@ export default function App() {
               variant="outline"
               onClick={() => {
                 setNotes(SAMPLE_NOTES)
-                setMessage(null)
               }}
             >
               Load sample notes
             </Button>
-            <Button onClick={() => void generate()} disabled={busy}>
-              {busy ? "Generating…" : "Generate quiz"}
+            <Button
+              onClick={() => void controller.generate(notes, useModel)}
+              disabled={quiz.busy}
+            >
+              {quiz.busy ? "Generating…" : "Generate quiz"}
             </Button>
             {modelAvailable ? (
               <label className="flex items-center gap-2 text-muted-foreground">
@@ -186,13 +108,13 @@ export default function App() {
           <CardHeader>
             <CardTitle>Quiz</CardTitle>
             <CardDescription>
-              {questions.length === 0
+              {quiz.questions.length === 0
                 ? "Questions are written from the notes in front of you."
-                : `${answered}/${questions.length} answered · question ${index + 1} of ${questions.length}`}
+                : `${answered}/${quiz.questions.length} answered · question ${quiz.index + 1} of ${quiz.questions.length}`}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {message ? <p className="text-muted-foreground">{message}</p> : null}
+            {quiz.message ? <p className="text-muted-foreground">{quiz.message}</p> : null}
             {!question ? (
               <p>
                 Load the sample notes, then generate a quiz. No API key is
@@ -202,12 +124,12 @@ export default function App() {
               <>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">{question.topic}</Badge>
-                  {questions.map((item, itemIndex) => (
+                  {quiz.questions.map((item, itemIndex) => (
                     <Button
                       key={item.id}
                       size="xs"
-                      variant={itemIndex === index ? "default" : "outline"}
-                      onClick={() => setIndex(itemIndex)}
+                      variant={itemIndex === quiz.index ? "default" : "outline"}
+                      onClick={() => controller.go(itemIndex)}
                       aria-label={`Question ${itemIndex + 1}`}
                     >
                       {itemIndex + 1}
@@ -217,7 +139,7 @@ export default function App() {
                 <p className="text-base leading-relaxed">{question.prompt}</p>
                 <div className="flex flex-col gap-2">
                   {question.choices.map((choice) => {
-                    const picked = picks[question.id]
+                    const picked = quiz.picks[question.id]
                     const revealed = Boolean(picked)
                     const isAnswer = choice === question.answer
                     const isPick = picked === choice
@@ -226,7 +148,7 @@ export default function App() {
                         key={choice}
                         variant="outline"
                         disabled={revealed}
-                        onClick={() => choose(choice)}
+                        onClick={() => controller.choose(choice)}
                         className={cn(
                           "h-auto w-full justify-start px-2.5 py-2 text-left text-sm whitespace-normal",
                           revealed &&
@@ -243,10 +165,10 @@ export default function App() {
                     )
                   })}
                 </div>
-                {picks[question.id] ? (
+                {quiz.picks[question.id] ? (
                   <div className="flex flex-col gap-1 border border-border p-3">
                     <p className="font-medium">
-                      {picks[question.id] === question.answer
+                      {quiz.picks[question.id] === question.answer
                         ? "Correct."
                         : `Not quite. Answer: ${question.answer}.`}
                     </p>
@@ -260,15 +182,15 @@ export default function App() {
             <CardFooter className="flex gap-2">
               <Button
                 variant="outline"
-                disabled={index === 0}
-                onClick={() => setIndex((current) => current - 1)}
+                disabled={quiz.index === 0}
+                onClick={() => controller.go(quiz.index - 1)}
               >
                 Previous
               </Button>
               <Button
                 variant="outline"
-                disabled={index >= questions.length - 1}
-                onClick={() => setIndex((current) => current + 1)}
+                disabled={quiz.index >= quiz.questions.length - 1}
+                onClick={() => controller.go(quiz.index + 1)}
               >
                 Next
               </Button>
@@ -277,7 +199,7 @@ export default function App() {
         </Card>
       </div>
 
-      <MemoryPanel memory={memory} onReset={reset} />
+      <MemoryPanel memory={quiz.memory} onReset={controller.reset} />
     </main>
   )
 }
