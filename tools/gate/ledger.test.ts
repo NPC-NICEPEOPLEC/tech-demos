@@ -98,6 +98,62 @@ test("approval is read from the base commit, not the worktree", () => {
   }
 })
 
+test("a base without the ledger approves nothing, even if the worktree has the old file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "gate-ledger-"))
+  try {
+    git(dir, ["init"])
+    git(dir, [
+      "-c",
+      "user.email=gate@example.com",
+      "-c",
+      "user.name=gate",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "empty",
+    ])
+    const base = git(dir, ["rev-parse", "HEAD"])
+    mkdirSync(join(dir, "tracking"), { recursive: true })
+    writeFileSync(
+      join(dir, "tracking", "seen-bookmarks.json"),
+      `${JSON.stringify({ approved: [{ slug: "deeptutor-demo" }] })}\n`,
+    )
+    expect(slugs(loadApprovedSlugs(dir, base))).toEqual([])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a bookmark file at the base approves its slug", () => {
+  const dir = mkdtempSync(join(tmpdir(), "gate-ledger-"))
+  try {
+    mkdirSync(join(dir, "tracking", "bookmarks"), { recursive: true })
+    writeFileSync(
+      join(dir, "tracking", "bookmarks", "2114702883673501719.json"),
+      `${JSON.stringify({ status: { phase: "approved", at: "2026-11-03", slug: "deeptutor-demo" } })}\n`,
+    )
+    git(dir, ["init"])
+    git(dir, ["add", "tracking/bookmarks/2114702883673501719.json"])
+    git(dir, [
+      "-c",
+      "user.email=gate@example.com",
+      "-c",
+      "user.name=gate",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-m",
+      "bookmark",
+    ])
+    const base = git(dir, ["rev-parse", "HEAD"])
+    expect(slugs(loadApprovedSlugs(dir, base))).toEqual(["deeptutor-demo"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("the merge base approves the current demo slugs", () => {
   const base = resolveMergeBase(repoRoot)
   const read = loadApprovedSlugs(repoRoot, base)
