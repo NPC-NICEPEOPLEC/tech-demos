@@ -135,6 +135,49 @@ describe("quiz session", () => {
     expect(opened.memory.topics).toEqual([])
   })
 
+  test("a throwing setItem after the model returns keeps the scores and clears busy", async () => {
+    let fail = false
+    const items = new Map<string, string>()
+    const storage: StorageLike = {
+      getItem(key) {
+        return items.get(key) ?? null
+      },
+      setItem(key, value) {
+        if (fail) throw new Error("quota")
+        items.set(key, value)
+      },
+      removeItem(key) {
+        items.delete(key)
+      },
+    }
+    const quiz = createBrowserQuiz(
+      { localStorage: storage },
+      {
+        writeQuiz: () => [question("local", "keep")],
+        modelQuiz: async () => [
+          question("model-a", "a"),
+          question("model-b", "b"),
+          question("model-c", "c"),
+        ],
+        modelKey: () => "key",
+      },
+    )
+
+    await quiz.generate("notes", false)
+    quiz.choose("other")
+    const before = quiz.snapshot()
+    const stored = items.get(MEMORY_KEY)
+    fail = true
+    await quiz.generate("notes", true)
+
+    const after = quiz.snapshot()
+    expect(after.busy).toBe(false)
+    expect(after.questions).toEqual(before.questions)
+    expect(after.memory).toEqual(before.memory)
+    expect(after.message).toBe("Could not save this quiz on this browser.")
+    expect(items.get(MEMORY_KEY)).toBe(stored)
+  })
+
   test("setItem runs before the snapshot changes", async () => {
     const storage = fakeStorage()
     const quiz = createBrowserQuiz({ localStorage: storage }, localWriters())

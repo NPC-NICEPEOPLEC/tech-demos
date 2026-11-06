@@ -46,6 +46,7 @@ const EMPTY_NOTES = "Paste notes or load the sample passage first."
 const SHORT_NOTES = "Not enough full sentences to build a quiz. Try the sample notes."
 const THIN_MODEL = "The model returned too little, so this quiz is local."
 const CLEARED = "Memory cleared on this browser."
+const SAVE_FAILED = "Could not save this quiz on this browser."
 
 export function weakTopics(topics: readonly TopicScore[]): readonly string[] {
   return topics
@@ -172,6 +173,10 @@ export function createBrowserQuiz(
     try {
       port.write(nextMemory)
     } catch {
+      if (ticket !== epoch || !busy) return
+      busy = false
+      message = SAVE_FAILED
+      emit()
       return
     }
     memory = nextMemory
