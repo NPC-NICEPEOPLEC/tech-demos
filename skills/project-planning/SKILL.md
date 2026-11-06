@@ -16,9 +16,11 @@ Write `apps/<slug>/PLAN.md` before any code. Keep it to one page.
 
 ## Rules
 - Runtime and package manager: Bun (`bun install && bun run dev`).
-- Scaffold with an official `bunx create-*`; never hand-roll boilerplate.
+- Scaffold with an official `bunx create-*`. Never hand-roll boilerplate.
+- After the scaffold, run `bun tools/gate/cli.ts stamp apps/<slug>`.
 - Add `bunfig.toml` with `[install]` `minimumReleaseAge = 259200` before installing.
-- UI: shadcn/ui, minimalist preset.
-- Prebuilt over bespoke; boring defaults.
+- UI is shadcn/ui with the `base-lyra` style. `components.json` has `"style": "base-lyra"`.
+- A demo plan stays in the app lane. It does not edit `tracking/`. An approval is terminal, and the slug is already approved before the pull request.
+- Prebuilt over bespoke. Boring defaults.
 - One framework only.
-- Add small tests/hooks, not a large suite.
+- Add a few small tests and hooks, not a large suite.
