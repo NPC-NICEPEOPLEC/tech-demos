@@ -1,5 +1,27 @@
 {
-  "proposed": [],
+  "proposed": [
+    {
+      "id": "2111407021119439295",
+      "title": "REA (Reverse Engineer Anything) — morluto/rea",
+      "url": "https://x.com/slashui/status/2111407021119439295",
+      "date": "2026-11-04",
+      "slug": "rea-har-explorer-demo"
+    },
+    {
+      "id": "2111705341109149805",
+      "title": "HyperFrames — heygen-com/hyperframes",
+      "url": "https://x.com/meijiangAI/status/2111705341109149805",
+      "date": "2026-11-05",
+      "slug": "hyperframes-demo"
+    },
+    {
+      "id": "2114739076796428729",
+      "title": "React Bits — DavidHDev/react-bits animated React components",
+      "url": "https://x.com/thegreatest_sv/status/2114739076796428729",
+      "date": "2026-11-06",
+      "slug": "react-bits-demo"
+    }
+  ],
   "approved": [
     {
       "id": "2114576054018818536",
