@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card"
 import { Progress, ProgressLabel } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { Memory } from "@/lib/memory"
+import { weakTopics, type QuizMemory } from "@/lib/session"
 
 function percent(correct: number, total: number): number {
   if (total <= 0) return 0
@@ -21,12 +21,10 @@ export function MemoryPanel({
   memory,
   onReset,
 }: {
-  memory: Memory
+  memory: QuizMemory
   onReset: () => void
 }) {
-  const topics = Object.entries(memory.topics).sort((left, right) =>
-    left[0].localeCompare(right[0]),
-  )
+  const spots = weakTopics(memory.topics)
   const longTerm = memory.longTerm
 
   return (
@@ -63,15 +61,15 @@ export function MemoryPanel({
             )}
           </TabsContent>
           <TabsContent value="topics" className="flex flex-col gap-3 pt-3">
-            {topics.length === 0 ? (
+            {memory.topics.length === 0 ? (
               <p className="text-muted-foreground">
                 Topics show up after you answer a question.
               </p>
             ) : (
-              topics.map(([topic, stat]) => (
-                <Progress key={topic} value={percent(stat.correct, stat.seen)}>
+              memory.topics.map((stat) => (
+                <Progress key={stat.topic} value={percent(stat.correct, stat.seen)}>
                   <ProgressLabel>
-                    {topic} · {stat.correct}/{stat.seen}
+                    {stat.topic} · {stat.correct}/{stat.seen}
                   </ProgressLabel>
                 </Progress>
               ))
@@ -86,10 +84,10 @@ export function MemoryPanel({
             </Progress>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-muted-foreground">Weak spots</span>
-              {longTerm.weakSpots.length === 0 ? (
+              {spots.length === 0 ? (
                 <span>None yet.</span>
               ) : (
-                longTerm.weakSpots.map((topic) => (
+                spots.map((topic) => (
                   <Badge key={topic} variant="destructive">
                     {topic}
                   </Badge>

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "types": [
+      "bun-types"
+    ],
+    "rootDir": "src",
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.test.ts"
+  ],
+  "exclude": []
+}
